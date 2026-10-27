@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>富美興淹水警示地圖</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --panel:#fff; --text:#1c2733; --muted:#64748b; --line:#e2e8f0;
+    --safe:#2e9e5b; --watch:#e0a800; --warn:#ee7a1a; --danger:#d62839; --accent:#1769c2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#10161d; --panel:#18212b; --text:#e6edf3; --muted:#8b9aab; --line:#2a3644; --accent:#5aa9f5; }
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;background:var(--bg);color:var(--text);display:flex;font-size:14px}
+  #side{width:380px;max-width:100%;height:100%;overflow-y:auto;background:var(--panel);border-right:1px solid var(--line);padding:14px 16px;flex-shrink:0}
+  #mapwrap{flex:1;position:relative;min-width:0}
+  #map{position:absolute;inset:0}
+  h1{font-size:18px;margin:0 0 2px}
+  h2{font-size:13px;margin:18px 0 8px;color:var(--muted);text-transform:none;letter-spacing:.04em}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:10px}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}
+  input[type=text],input[type=password],input[type=number],input[type=date],input[type=time]{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px}
+  button{padding:7px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);cursor:pointer;font-size:13px}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button:hover{filter:brightness(1.06)}
+  .row{display:flex;gap:8px;align-items:center}
+  .row > *{flex:1}
+  .row > button{flex:0 0 auto}
+  .chk{display:flex;gap:6px;align-items:center;margin:6px 0;font-size:13px;color:var(--text)}
+  #status{font-size:12px;margin-top:8px;min-height:16px;color:var(--muted);white-space:pre-wrap}
+  #status.err{color:var(--danger)}
+  .zone{border:1px solid var(--line);border-radius:8px;padding:9px 10px;margin-bottom:8px;cursor:pointer}
+  .zone:hover{border-color:var(--accent)}
+  .zone .top{display:flex;justify-content:space-between;font-weight:600}
+  .zone .meta{color:var(--muted);font-size:12px;margin-top:3px;line-height:1.5}
+  .bars{display:flex;align-items:flex-end;gap:2px;height:44px;margin-top:6px}
+  .bars i{flex:1;background:var(--accent);opacity:.85;border-radius:2px 2px 0 0;min-height:1px}
+  .bars-lbl{display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}
+  .pt{display:flex;gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+  .pt:hover{background:var(--bg)}
+  .dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+  .pt .n{flex:1;min-width:0}
+  .pt .n small{display:block;color:var(--muted);font-size:11px}
+  .tag{font-size:11px;padding:2px 7px;border-radius:10px;color:#fff;white-space:nowrap}
+  .lv0{background:var(--safe)} .lv1{background:var(--watch)} .lv2{background:var(--warn)} .lv3{background:var(--danger)}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px}
+  .legend span{display:flex;align-items:center;gap:5px}
+  details{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.6}
+  summary{cursor:pointer}
+  #gate{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);padding:24px;background:var(--bg)}
+  #gate div{max-width:340px;line-height:1.7}
+  .daily{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:8px;font-size:11px;text-align:center}
+  .daily div{background:var(--bg);border-radius:6px;padding:4px 2px}
+  @media (max-width:760px){
+    body{flex-direction:column-reverse}
+    #side{width:100%;height:50%;border-right:0;border-top:1px solid var(--line)}
+    #mapwrap{height:50%;flex:none}
+  }
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>富美興淹水警示地圖</h1>
+  <div class="sub">Phú Mỹ Hưng · Quận 7 · Nhà Bè｜雨量預報 × 地勢易淹點</div>
+
+  <h2>Google API KEY</h2>
+  <input type="password" id="apiKey" placeholder="貼上 Google Maps Platform API KEY" autocomplete="off">
+  <div class="row" style="margin-top:8px">
+    <button class="primary" id="btnLoad">載入地圖與天氣</button>
+    <button id="btnForget">清除 KEY</button>
+  </div>
+  <div class="chk"><input type="checkbox" id="remember" checked><label for="remember" style="margin:0">記住在此瀏覽器（localStorage）</label></div>
+  <div id="status"></div>
+
+  <h2>我的位置</h2>
+  <div id="homeCard" style="border-radius:8px;padding:10px 12px;background:var(--bg);font-size:13px;line-height:1.6">尚未設定</div>
+  <div class="row" style="margin-top:8px">
+    <input type="text" id="homeQ" placeholder="搜尋地址">
+    <button id="btnHomeSearch">搜尋</button>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <button id="btnHomePick">在地圖上點選</button>
+    <select id="homeV" style="padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text)">
+      <option value="1">地勢：高處（低風險）</option>
+      <option value="2" selected>地勢：中等</option>
+      <option value="3">地勢：低窪（易淹）</option>
+    </select>
+    <button id="btnHomeClear">清除</button>
+  </div>
+
+  <h2>圖例</h2>
+  <div class="legend">
+    <span><i class="dot lv0"></i>正常</span>
+    <span><i class="dot lv1"></i>注意</span>
+    <span><i class="dot lv2"></i>警戒</span>
+    <span><i class="dot lv3"></i>危險</span>
+  </div>
+
+  <h2>天氣分區（點選可飛到該區）</h2>
+  <div id="zones"></div>
+
+  <div class="row" style="margin:18px 0 8px;justify-content:space-between">
+    <h2 style="margin:0;flex:1">易淹點位（依風險排序）</h2>
+    <button id="btnAdd" class="primary">＋新增</button>
+    <button id="btnEdit">細部修正</button>
+  </div>
+  <div id="restoreBox" style="display:none;margin-bottom:8px"><button id="btnRestore">還原已刪除的預設點位</button></div>
+  <div id="points"></div>
+
+  <h2>＋自訂監測點</h2>
+  <input type="text" id="newName" placeholder="名稱，例如 韓國學校附近（接小孩）">
+  <div class="row" style="margin-top:6px">
+    <select id="newV" style="padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text)">
+      <option value="1">地勢：高處</option>
+      <option value="2">地勢：中等</option>
+      <option value="3" selected>地勢：低窪（易淹）</option>
+    </select>
+    <span class="chk" style="margin:0;flex:0 0 auto"><input type="checkbox" id="newTide" checked><label for="newTide" style="margin:0">受潮汐影響</label></span>
+  </div>
+  <button class="primary" id="btnNewPt" style="margin-top:8px;width:100%">放到地圖中央，再拖到道路上</button>
+  <div class="sub" style="margin-top:6px">先把地圖移到想監測的地方，按按鈕，圓點會出現在畫面中央；拖曳到路上即可，位置會記住。點圓點可刪除。</div>
+
+  <h2>淹水紀錄（校正用）</h2>
+  <div class="row"><input type="date" id="lgDate"><input type="time" id="lgTime"></div>
+  <div class="row" style="margin-top:6px"><input type="number" id="lgTide" step="0.01" placeholder="當時潮位 m"><input type="number" id="lgDepth" step="1" placeholder="積水深度 cm"></div>
+  <input type="text" id="lgPlace" placeholder="地點（選填）" style="margin-top:6px">
+  <button id="btnLg" style="margin-top:6px;width:100%">新增紀錄</button>
+  <div id="lgEst" class="sub" style="margin-top:8px"></div>
+  <div id="lgList"></div>
+
+  <h2>匯出／匯入設定（分享給家人）</h2>
+  <div class="chk"><input type="checkbox" id="expHome"><label for="expHome" style="margin:0">匯出時包含「我的位置」（預設不含，保護隱私）</label></div>
+  <div class="chk"><input type="checkbox" id="expLog" checked><label for="expLog" style="margin:0">匯出時包含淹水紀錄</label></div>
+  <textarea id="shareBox" rows="3" placeholder="按「匯出」會產生一段文字，傳給家人；家人把文字貼在這裡，按「匯入」" style="width:100%;margin-top:6px;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"></textarea>
+  <div class="row" style="margin-top:6px"><button id="btnExp">匯出</button><button id="btnImp">匯入</button></div>
+  <div class="sub" style="margin-top:6px">不含 API KEY。匯入會「合併」，不會刪除對方原有的點位。</div>
+
+  <h2>設定</h2>
+  <div class="chk"><input type="checkbox" id="traffic"><label for="traffic" style="margin:0">顯示即時路況圖層</label></div>
+  <div class="chk"><input type="checkbox" id="addMode"><label for="addMode" style="margin:0">新增點位模式（點地圖加入自訂易淹點）</label></div>
+  <div style="margin-top:8px"><a href="https://haichaobiao.com/vn/ho-chi-minh/ho-chi-minh#_tide_table" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">開啟潮汐表（haichaobiao）→</a><br>
+  <a href="https://zh.tideschart.com/Vietnam/Ho-Chi-Minh/Ho-Chi-Minh-Vict-Port/" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px">開啟潮汐表（Tideschart，今日一覽）→</a></div>
+  <div class="chk" style="margin-top:10px"><input type="checkbox" id="autoTide" checked><label for="autoTide" style="margin:0">自動使用潮汐表（依現在時間推算）</label></div>
+  <div id="tideNow" class="sub"></div>
+  <div class="sub" style="margin-top:8px"><b>官方 Phú An 預報（選填，手動填）</b></div>
+  <div class="row"><input type="time" id="offTime"><input type="number" id="offH" step="0.01" placeholder="官方高度 m"></div>
+  <div class="chk"><input type="checkbox" id="useOff"><label for="useOff" style="margin:0">高潮時間以官方為準（高度仍用潮汐表）</label></div>
+  <div id="offCmp" class="sub"></div>
+  <details open style="margin-top:4px">
+    <summary>貼上 haichaobiao 潮汐表（整月）</summary>
+    <div class="row" style="margin-top:6px"><input type="month" id="tideMonth" style="padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text)"></div>
+    <textarea id="tideTbl" rows="4" placeholder="到潮汐表網頁，選取整張表格複製（Ctrl+C），貼在這裡" style="width:100%;margin-top:6px;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px"></textarea>
+    <button id="btnTideParse" style="margin-top:6px;width:100%">解析並加入潮汐表</button>
+  </details>
+  <label>當天高潮高度 (m)。注意：要和下方門檻用同一個來源的數字</label>
+  <input type="number" id="tide" step="0.01" placeholder="例如 1.55">
+  <label>高潮預計時間（選填；落在 15:30–20:00 視為下班時段）</label>
+  <input type="time" id="tideTime" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text)">
+  <label>高潮警戒門檻 (m)（暫定 3.40，以 haichaobiao 的數字為準；Tideschart 的時間和高度不同，請勿混用，需依實際淹水經驗校正）</label>
+  <input type="number" id="tideTh" step="0.01" value="3.40">
+  <div class="chk" style="margin-top:10px"><input type="checkbox" id="sim"><label for="sim" style="margin:0">模擬模式（不用天氣資料測試）</label></div>
+  <input type="number" id="simMm" value="30" step="1" placeholder="未來 3 小時模擬雨量 mm">
+
+  <h2>資料來源與官方連結</h2>
+  <div style="line-height:1.9;font-size:13px">
+    <a href="http://www.kttv-nb.org.vn/" target="_blank" rel="noopener" style="color:var(--accent)">南部水文氣象中心（官方預報）→</a><br>
+    <a href="https://bandotrieucuong.tuoitrethanhphobac.vn" target="_blank" rel="noopener" style="color:var(--accent)">胡志明市淹水與潮汐地圖→</a><br>
+    <a href="https://haichaobiao.com/vn/ho-chi-minh/ho-chi-minh#_tide_table" target="_blank" rel="noopener" style="color:var(--accent)">潮汐表 haichaobiao→</a><br>
+    <a href="https://zh.tideschart.com/Vietnam/Ho-Chi-Minh/Ho-Chi-Minh-Vict-Port/" target="_blank" rel="noopener" style="color:var(--accent)">潮汐表 Tideschart→</a>
+  </div>
+  <div class="sub" style="margin-top:8px;line-height:1.6">天氣：Google Weather API。潮汐表由使用者自行貼上，本頁不會自動抓取其他網站資料。</div>
+
+  <div style="margin-top:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.6">
+    <b>免責聲明</b>：本頁為個人製作的參考工具，點位位置、地勢係數與淹水門檻皆為估計值，並非官方警報，也不保證準確。實際請以官方公告與現場狀況為準，積水路段請勿冒險通行。
+  </div>
+
+  <details>
+    <summary>風險怎麼算 / 注意事項</summary>
+    <p>每個點位取所屬分區的 24 小時逐時預報：<br>
+    分數 = max(未來1h雨量×2, 未來3h累積, 未來24h累積×0.4) × 地勢係數（高 1.6／中 1.2／低 0.8）。<br>
+    &lt;8 正常；8–20 注意；20–40 警戒；≥40 危險。<br>
+    若填了潮位且 ≥ 門檻，地勢係數 ≥ 中的點位再升一級（潮汐是 Nhà Bè／Phú Thuận 淹水主因之一，Weather API 不含潮位，需手動輸入）。</p>
+    <p><b>預設點位座標與地勢係數是依常見積水路段估計的約略值，不是官方資料</b>，請用「新增點位」或自行修改程式內 <code>BASE_POINTS</code> 校正。此頁僅供參考，不能取代胡志明市官方防洪通報。</p>
+    <p>需在 Google Cloud 啟用：Maps JavaScript API、Weather API。若 KEY 設了 HTTP referrer 限制，請用 http://localhost 開啟，直接雙擊 file:// 可能被擋。</p>
+  </details>
+</aside>
+
+<div id="mapwrap">
+  <div id="map"></div>
+  <div id="gate"><div><b>請先在左側貼上 Google API KEY</b><br>載入後會顯示地圖、天氣預報與各易淹點位的風險等級。</div></div>
+</div>
+
+<script>
+// ===== 資料 =====
+// v: 地勢係數 1=低風險 2=中 3=高；座標為約略值，請自行校正
+const BASE_POINTS = [
+  {id:"nlb-15b",   name:"Nguyễn Lương Bằng × Đường 15B（大潮下班淹水）", lat:10.7213, lng:106.7253, v:3, tide:true, geo:"Nguyễn Lương Bằng & Đường 15B, Phú Mỹ, Quận 7, Hồ Chí Minh, Vietnam", note:"潮汐敏感點：大潮時下班時段會淹。座標為估計值，請拖曳圓點到正確路口"},
+  {id:"pmh-core",  name:"Phú Mỹ Hưng 核心區 (Crescent Mall 周邊)", lat:10.7292, lng:106.7192, v:1, note:"排水較完善，地勢相對好"},
+  {id:"nvl-tp",    name:"Nguyễn Văn Linh × Tân Phú",               lat:10.7275, lng:106.7140, v:2, note:"大雨時車流與積水"},
+  {id:"nvl-ntt",   name:"Nguyễn Thị Thập (Tân Phong)",             lat:10.7400, lng:106.7080, v:2, note:""},
+  {id:"htp-ttd",   name:"Huỳnh Tấn Phát (Tân Thuận Đông)",         lat:10.7425, lng:106.7335, v:3, note:"近河岸，雨+潮易積水"},
+  {id:"phu-thuan", name:"Phú Thuận",                                lat:10.7480, lng:106.7350, v:3, note:"低窪，潮汐影響"},
+  {id:"tx-soan",   name:"Trần Xuân Soạn (Tân Kiểng)",              lat:10.7510, lng:106.7010, v:3, note:"常見積水路段"},
+  {id:"dao-tri",   name:"Đào Trí (Phú Thuận / Bình Thuận)",        lat:10.7400, lng:106.7280, v:2, note:""},
+  {id:"nht-llv",   name:"Nguyễn Hữu Thọ × Lê Văn Lương (Nhà Bè)",  lat:10.7087, lng:106.7032, v:3, note:"Nhà Bè 常見積水"},
+  {id:"phuoc-kien",name:"Phước Kiển (Nhà Bè)",                      lat:10.6850, lng:106.7000, v:3, note:""},
+  {id:"phu-xuan",  name:"Thị trấn Nhà Bè / Phú Xuân",              lat:10.6890, lng:106.7380, v:3, note:"近 Nhà Bè 河，潮汐影響大"},
+  {id:"hiep-phuoc",name:"Hiệp Phước (Nhà Bè 南)",                  lat:10.6320, lng:106.7590, v:3, note:"低窪、近海側"}
+];
+const ZONES = [
+  {id:"PMH", name:"Phú Mỹ Hưng", lat:10.7290, lng:106.7190},
+  {id:"D7",  name:"Quận 7",       lat:10.7420, lng:106.7250},
+  {id:"NB",  name:"Nhà Bè",       lat:10.6900, lng:106.7300}
+];
+const LEVELS = [
+  {name:"正常", color:"#2e9e5b"},
+  {name:"注意", color:"#e0a800"},
+  {name:"警戒", color:"#ee7a1a"},
+  {name:"危險", color:"#d62839"}
+];
+const MULT = {1:0.8, 2:1.2, 3:1.6};
+const CENTER = {lat:10.7150, lng:106.7200};
+
+// ===== 狀態 =====
+const $ = id => document.getElementById(id);
+let map, trafficLayer, infoWin;
+let customPoints = [];
+let weather = {};            // zoneId -> {current, hours, days}
+let markers = {};            // pointId -> marker
+let evaluated = [];          // [{p, level, score, ...}]
+let refreshTimer = null;
+
+try{ customPoints = JSON.parse(localStorage.getItem("floodCustomPts")||"[]"); }catch(e){}
+try{ const k = localStorage.getItem("floodApiKey"); if(k) $("apiKey").value = k; }catch(e){}
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function setStatus(msg, isErr){ const s=$("status"); s.textContent=msg; s.className = isErr?"err":""; }
+let home = null, homePick = false;
+try{ home = JSON.parse(localStorage.getItem("floodHome")||"null"); }catch(e){}
+if(home) $("homeV").value = String(home.v);
+const homePoint = () => home ? {id:"home", name:(home.alias||"我家"), lat:home.lat, lng:home.lng, v:home.v, note:"自訂住家位置", home:true} : null;
+let posOv = {};
+try{ posOv = JSON.parse(localStorage.getItem("floodPosOv")||"{}"); }catch(e){}
+let nameOv = {}, editMode = false, hidden = [];
+try{ hidden = JSON.parse(localStorage.getItem("floodHidden")||"[]"); }catch(e){}
+try{ nameOv = JSON.parse(localStorage.getItem("floodNameOv")||"{}"); }catch(e){}
+const allPoints = () => { const h = homePoint(); return (h?[h]:[]).concat(BASE_POINTS.filter(p=>!hidden.includes(p.id)), customPoints).map(p => {
+  if(p.home) return p;
+  const o = Object.assign({}, p, posOv[p.id]||{});
+  if(nameOv[p.id]) o.name = nameOv[p.id];
+  return o;
+}); };
+
+function nearestZone(lat,lng){
+  let best=ZONES[0], bd=1e9;
+  for(const z of ZONES){ const d=(z.lat-lat)**2+(z.lng-lng)**2; if(d<bd){bd=d;best=z;} }
+  return best.id;
+}
+
+// ===== 載入 Google Maps =====
+function loadMaps(){
+  const key = $("apiKey").value.trim();
+  if(!key){ setStatus("請先輸入 API KEY", true); return; }
+  try{
+    if($("remember").checked) localStorage.setItem("floodApiKey", key);
+    else localStorage.removeItem("floodApiKey");
+  }catch(e){}
+  setStatus("載入 Google Maps…");
+  if(window.google && window.google.maps){ initMap(); fetchAll(); return; }
+  window.gm_authFailure = () => setStatus("Google Maps 驗證失敗：請確認 KEY 正確、已啟用 Maps JavaScript API、且 referrer 限制允許此網址。", true);
+  window.__initMap = () => { initMap(); fetchAll(); };
+  const s = document.createElement("script");
+  s.src = "https://maps.googleapis.com/maps/api/js?key="+encodeURIComponent(key)+"&callback=__initMap&loading=async&language=zh-TW";
+  s.async = true;
+  s.onerror = () => setStatus("無法載入 Google Maps 腳本（網路或 KEY 問題）。", true);
+  document.head.appendChild(s);
+}
+
+function initMap(){
+  $("gate").style.display = "none";
+  if(!map){
+    map = new google.maps.Map($("map"), {
+      center:CENTER, zoom:12, mapTypeControl:true, streetViewControl:false, fullscreenControl:true
+    });
+    trafficLayer = new google.maps.TrafficLayer();
+    infoWin = new google.maps.InfoWindow();
+    map.addListener("click", e => {
+      if(pickTarget){ const id = pickTarget; pickTarget = null; savePos(id, e.latLng.lat(), e.latLng.lng()); setStatus("已校正位置"); return; }
+      if(homePick){ homePick=false; setHome(e.latLng.lat(), e.latLng.lng(), ""); setStatus("已設定我家位置"); return; }
+      if($("addMode").checked) addCustomPoint(e.latLng.lat(), e.latLng.lng());
+    });
+  }
+  renderAll();
+  snapPoints();
+}
+
+// 有 geo 查詢字串且尚未手動校正的點位，用 Geocoder 貼到實際路口（結果距估計值 3km 內才採用）
+async function snapPoints(){
+  const gc = new google.maps.Geocoder();
+  for(const p of BASE_POINTS){
+    if(!p.geo || posOv[p.id]) continue;
+    try{
+      const res = await gc.geocode({address:p.geo, region:"VN"});
+      const loc = res.results[0] && res.results[0].geometry.location;
+      if(!loc) continue;
+      const d = Math.hypot((loc.lat()-p.lat)*111, (loc.lng()-p.lng)*109);
+      if(d>3) continue;
+      posOv[p.id] = {lat:loc.lat(), lng:loc.lng()};
+      try{ localStorage.setItem("floodPosOv", JSON.stringify(posOv)); }catch(e){}
+      renderAll();
+    }catch(e){ /* Geocoding API 未啟用時略過，請手動拖曳圓點 */ }
+  }
+}
+
+// ===== Weather API =====
+async function wx(kind, z, extra){
+  const key = $("apiKey").value.trim();
+  const url = "https://weather.googleapis.com/v1/"+kind+":lookup?key="+encodeURIComponent(key)
+    +"&location.latitude="+z.lat+"&location.longitude="+z.lng+"&languageCode=zh-TW"+(extra||"");
+  const r = await fetch(url);
+  if(!r.ok){
+    let msg = r.status+" "+r.statusText;
+    try{ const j=await r.json(); if(j.error&&j.error.message) msg += "：" + j.error.message; }catch(e){}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+async function fetchAll(){
+  if($("sim").checked){ setStatus("模擬模式：未呼叫 Weather API"); renderAll(); return; }
+  setStatus("取得天氣預報中…");
+  let errs = [];
+  await Promise.all(ZONES.map(async z=>{
+    try{
+      const [cur, hrs, days] = await Promise.all([
+        wx("currentConditions", z),
+        wx("forecast/hours", z, "&hours=24&pageSize=24"),
+        wx("forecast/days", z, "&days=5&pageSize=5")
+      ]);
+      weather[z.id] = {current:cur, hours:hrs.forecastHours||[], days:days.forecastDays||[]};
+    }catch(e){ errs.push(z.name+"："+e.message); }
+  }));
+  if(errs.length){
+    setStatus("Weather API 錯誤（請確認 Google Cloud 已啟用 Weather API 且 KEY 未限制掉它）：\n"+errs[0], true);
+  }else{
+    setStatus("更新時間 "+new Date().toLocaleTimeString()+"（每 15 分鐘自動更新）");
+  }
+  renderAll();
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(fetchAll, 15*60*1000);
+}
+
+// ===== 風險計算 =====
+const qpf = h => (h && h.precipitation && h.precipitation.qpf && Number(h.precipitation.qpf.quantity)) || 0;
+const pop = h => (h && h.precipitation && h.precipitation.probability && Number(h.precipitation.probability.percent)) || 0;
+
+function zoneRain(zid){
+  if($("sim").checked){
+    const m = Number($("simMm").value)||0;
+    return {h1:m/3, h3:m, h24:m, popMax:100, bars:[m/3,m/3,m/3].concat(Array(21).fill(0))};
+  }
+  const w = weather[zid];
+  if(!w) return null;
+  const q = w.hours.map(qpf);
+  const sum = (n)=>q.slice(0,n).reduce((a,b)=>a+b,0);
+  return {h1:q[0]||0, h3:sum(3), h24:sum(24), popMax:Math.max(0,...w.hours.slice(0,24).map(pop)), bars:q};
+}
+
+function evaluate(p){
+  const zid = nearestZone(p.lat,p.lng);
+  const tide = parseFloat($("tide").value), th = parseFloat($("tideTh").value)||3.4;
+  const tideHigh = !isNaN(tide) && tide>=th;
+  let r = zoneRain(zid);
+  if(!r){
+    if(!(p.tide && tideHigh)) return {p, zid, level:null, score:null, r:null};
+    r = {h1:0, h3:0, h24:0, popMax:0, bars:[]};
+  }
+  const base = Math.max(r.h1*2, r.h3, r.h24*0.4);
+  const score = base * (MULT[p.v]||1);
+  let level = score<8?0 : score<20?1 : score<40?2 : 3;
+  if(tideHigh && p.v>=2) level = Math.min(3, level+1);
+  let commute = false, win = null;
+  if(p.tide && tideHigh){
+    // 潮汐敏感點：高潮位時至少警戒；淹水時段 = 高潮前後 1.5 小時，與下班時段（15:30–20:00）重疊（或未填時間）則直接危險
+    const t = $("tideTime").value;
+    const m = t ? parseInt(t.slice(0,2),10)*60 + parseInt(t.slice(3,5),10) : null;
+    if(m!=null){
+      win = {ws:m-90, we:m+90};
+      const pts = (autoPeakTs!=null) ? autoPeakTs : new Date().setHours(0,0,0,0) + m*60000;
+      win.nowIn = Math.abs(Date.now()-pts) <= 90*60000;
+      commute = win.ws<=20*60 && win.we>=15*60+30;
+    }else commute = true;
+    level = Math.max(level, commute ? 3 : 2);
+  }
+  return {p, zid, level, score, r, tideHigh, commute, win};
+}
+
+// ===== 繪製 =====
+function renderAll(){
+  evaluated = allPoints().map(evaluate);
+  renderHome();
+  renderLog();
+  renderZones();
+  renderPoints();
+  renderMarkers();
+}
+
+function renderZones(){
+  const el = $("zones"); el.innerHTML = "";
+  for(const z of ZONES){
+    const r = zoneRain(z.id), w = weather[z.id];
+    const d = document.createElement("div"); d.className = "zone";
+    let meta = "尚無資料";
+    let bars = "";
+    if(r){
+      const cur = w && w.current;
+      const desc = cur && cur.weatherCondition && cur.weatherCondition.description ? cur.weatherCondition.description.text : "";
+      const temp = cur && cur.temperature ? Math.round(cur.temperature.degrees)+"°C " : "";
+      const hist = cur && cur.currentConditionsHistory && cur.currentConditionsHistory.qpf ? cur.currentConditionsHistory.qpf.quantity : null;
+      meta = (desc||"") + " " + temp + "<br>未來 1h <b>"+r.h1.toFixed(1)+"</b> mm · 3h <b>"+r.h3.toFixed(1)+"</b> mm · 24h <b>"+r.h24.toFixed(1)+"</b> mm<br>最高降雨機率 "+Math.round(r.popMax)+"%"
+        + (hist!=null ? " · 過去24h "+Number(hist).toFixed(1)+" mm" : "");
+      const mx = Math.max(1, ...r.bars);
+      bars = '<div class="bars">'+r.bars.slice(0,24).map(v=>'<i style="height:'+Math.max(2,v/mx*100)+'%" title="'+v.toFixed(1)+' mm"></i>').join("")+'</div><div class="bars-lbl"><span>現在</span><span>+12h</span><span>+24h</span></div>';
+      if(w && w.days.length){
+        bars += '<div class="daily">'+w.days.slice(0,5).map(dd=>{
+          const dt = dd.displayDate ? dd.displayDate.month+"/"+dd.displayDate.day : "";
+          const mm = qpf(dd.daytimeForecast)+qpf(dd.nighttimeForecast);
+          return '<div><b>'+dt+'</b><br>'+mm.toFixed(0)+' mm</div>';
+        }).join("")+'</div>';
+      }
+    }
+    d.innerHTML = '<div class="top"><span>'+esc(z.name)+'</span></div><div class="meta">'+meta+'</div>'+bars;
+    d.onclick = ()=>{ if(map){ map.panTo({lat:z.lat,lng:z.lng}); map.setZoom(14); } };
+    el.appendChild(d);
+  }
+}
+
+function renderPoints(){
+  const el = $("points"); el.innerHTML = "";
+  $("restoreBox").style.display = (editMode && hidden.length) ? "block" : "none";
+  const sorted = evaluated.slice().sort((a,b)=>(b.level??-1)-(a.level??-1) || (b.score??0)-(a.score??0));
+  for(const e of sorted){
+    const d = document.createElement("div"); d.className = "pt";
+    const lv = e.level;
+    d.innerHTML = '<i class="dot" style="background:'+(lv==null?"#94a3b8":LEVELS[lv].color)+'"></i>'
+      + '<div class="n">'+esc(e.p.name)+'<small>'+esc(ZONES.find(z=>z.id===e.zid).name)+' · 地勢係數 '+e.p.v+(e.p.custom?" · 自訂":"")+(e.tideHigh&&e.p.v>=2?" · 高潮加成":"")+'</small></div>'
+      + (lv==null?'<span class="tag" style="background:#94a3b8">—</span>':'<span class="tag lv'+lv+'">'+LEVELS[lv].name+'</span>');
+    const fix = document.createElement("button");
+    fix.textContent = "📍校正"; fix.style.padding = "3px 6px"; fix.style.fontSize = "11px";
+    fix.onclick = ev=>{ ev.stopPropagation(); if(!map){ setStatus("請先載入地圖", true); return; } pickTarget = e.p.id; setStatus("請在地圖上點選「"+e.p.name+"」的正確位置"); };
+    if(editMode){
+      d.appendChild(fix);
+      const rn = document.createElement("button");
+      rn.textContent = "改名"; rn.style.padding = "3px 6px"; rn.style.fontSize = "11px";
+      rn.onclick = ev=>{
+        ev.stopPropagation();
+        const cur = e.p.home ? (home.alias||"我家") : e.p.name;
+        const nn = prompt("新名稱", cur);
+        if(!nn || !nn.trim()) return;
+        if(e.p.home){ home.alias = nn.trim(); try{ localStorage.setItem("floodHome", JSON.stringify(home)); }catch(x){} }
+        else{
+          const c = customPoints.find(q=>q.id===e.p.id);
+          if(c){ c.name = nn.trim(); saveCustom(); }
+          else{ nameOv[e.p.id] = nn.trim(); try{ localStorage.setItem("floodNameOv", JSON.stringify(nameOv)); }catch(x){} }
+        }
+        renderAll();
+      };
+      d.appendChild(rn);
+      const del = document.createElement("button");
+      del.textContent = "刪除"; del.style.padding = "3px 6px"; del.style.fontSize = "11px"; del.style.color = "var(--danger)";
+      del.onclick = ev=>{
+        ev.stopPropagation();
+        if(!confirm("刪除「"+e.p.name+"」？")) return;
+        if(e.p.home){ home = null; try{ localStorage.removeItem("floodHome"); }catch(x){} }
+        else if(customPoints.some(q=>q.id===e.p.id)){ customPoints = customPoints.filter(q=>q.id!==e.p.id); saveCustom(); }
+        else{ hidden.push(e.p.id); try{ localStorage.setItem("floodHidden", JSON.stringify(hidden)); }catch(x){} }
+        if(infoWin) infoWin.close();
+        renderAll();
+      };
+      d.appendChild(del);
+    }
+    d.onclick = ()=>{ if(map){ map.panTo({lat:e.p.lat,lng:e.p.lng}); map.setZoom(e.p.tide||e.p.home?17:15); openInfo(e); } };
+    el.appendChild(d);
+  }
+}
+
+function renderMarkers(){
+  if(!map) return;
+  for(const k in markers){ markers[k].setMap(null); }
+  markers = {};
+  for(const e of evaluated){
+    const color = e.level==null ? "#94a3b8" : LEVELS[e.level].color;
+    const m = new google.maps.Marker({
+      position:{lat:e.p.lat,lng:e.p.lng}, map,
+      title:e.p.name,
+      icon:{path:google.maps.SymbolPath.CIRCLE, scale:e.level>=2?11:9, fillColor:color, fillOpacity:.95, strokeColor:e.p.home?"#1c2733":"#fff", strokeWeight:e.p.home?3:2, labelOrigin:new google.maps.Point(0, e.p.home?2.2:0)},
+      label: e.p.home ? {text:(home.alias||"我家"), color:"#1c2733", fontWeight:"700", fontSize:"12px"} : null,
+      zIndex: e.p.home ? 100 : (e.level==null?1:10+e.level)
+    });
+    m.setDraggable(true);
+    m.addListener("click", ()=>openInfo(e));
+    m.addListener("dragend", ev=>{
+      savePos(e.p.id, ev.latLng.lat(), ev.latLng.lng());
+    });
+    markers[e.p.id] = m;
+  }
+}
+
+function openInfo(e){
+  if(!infoWin || !markers[e.p.id]) return;
+  const lv = e.level;
+  let html = '<div style="color:#1c2733;font-family:system-ui,sans-serif;min-width:200px"><b>'+esc(e.p.name)+'</b><br>';
+  if(lv==null) html += '尚無天氣資料';
+  else{
+    html += '<span style="color:'+LEVELS[lv].color+';font-weight:700">'+LEVELS[lv].name+'</span> （分數 '+e.score.toFixed(1)+'）<br>'
+      + '1h '+e.r.h1.toFixed(1)+' mm · 3h '+e.r.h3.toFixed(1)+' mm · 24h '+e.r.h24.toFixed(1)+' mm<br>';
+    if(e.tideHigh && e.p.v>=2) html += '潮位高於門檻，已加一級<br>';
+    if(e.p.tide){
+      if(e.tideHigh){
+        html += e.commute ? '<b>淹水時段與下班時段重疊，此路口極可能淹水</b><br>' : '潮位偏高，此路口可能積水<br>';
+        if(e.win) html += '預計淹水時段 '+fmtMin(e.win.ws)+'–'+fmtMin(e.win.we)+(e.win.nowIn?'（<b>現在就在時段內</b>）':'')+'<br>';
+        const dm = depthModel(), tv = parseFloat($("tide").value);
+        if(dm && !isNaN(tv)) html += '依你的紀錄估計積水約 '+Math.max(0, Math.round(dm.a+dm.b*tv))+' cm<br>';
+      }else html += '潮汐敏感點（尚未填潮位，或目前潮位低於門檻）<br>';
+    }
+  }
+  if(e.p.note) html += '<small>'+esc(e.p.note)+'</small><br>';
+  if(e.p.custom) html += '<button onclick="removeCustom(\''+e.p.id+'\')" style="margin-top:6px">刪除此自訂點</button>';
+  html += '</div>';
+  infoWin.setContent(html);
+  infoWin.open(map, markers[e.p.id]);
+}
+
+// ===== 潮汐表（haichaobiao，一個月）與自動推算 =====
+// 以下為 2026/10/25–31 的高低潮（時間, 高度 m），其餘月份請貼上網頁表格
+const DEFAULT_TIDE = {
+  "2026-10-25":[["02:35",3.5],["09:34",0.7],["15:14",3.4],["21:44",1.1]],
+  "2026-10-26":[["02:56",3.5],["10:06",0.3],["16:03",3.6],["22:23",1.3]],
+  "2026-10-27":[["03:19",3.6],["10:40",-0.1],["16:52",3.7],["23:02",1.5]],
+  "2026-10-28":[["03:44",3.7],["11:18",-0.3],["17:45",3.7],["23:41",1.8]],
+  "2026-10-29":[["04:11",3.7],["11:59",-0.4],["18:43",3.7]],
+  "2026-10-30":[["00:21",2.0],["04:39",3.7],["12:44",-0.4],["19:51",3.5]],
+  "2026-10-31":[["01:05",2.3],["05:10",3.6],["13:34",-0.3],["21:12",3.4]]
+};
+let tideDB = {}, autoPeakTs = null;
+try{ tideDB = JSON.parse(localStorage.getItem("floodTideDB")||"{}"); }catch(e){}
+for(const k in DEFAULT_TIDE){ if(!tideDB[k]) tideDB[k] = DEFAULT_TIDE[k].map(x=>({t:x[0], h:x[1]})); }
+function saveTideDB(){ try{ localStorage.setItem("floodTideDB", JSON.stringify(tideDB)); }catch(e){} }
+function tideEvents(){
+  const ev = [];
+  for(const k in tideDB){
+    const [y,m,d] = k.split("-").map(Number);
+    for(const x of tideDB[k]){ const [hh,mm] = x.t.split(":").map(Number); ev.push({ts:new Date(y,m-1,d,hh,mm).getTime(), h:x.h}); }
+  }
+  ev.sort((a,b)=>a.ts-b.ts);
+  ev.forEach((e,i)=>{ const p = ev[i-1], n = ev[i+1]; e.high = (!p||e.h>p.h) && (!n||e.h>n.h); });
+  return ev;
+}
+function parseTideText(text, ym){
+  const out = {}; let cur = null, buf = [];
+  const flush = ()=>{
+    if(cur==null) return;
+    const blk = buf.join(" "), re = /(\d{1,2}:\d{2})[\s▲▼]*(-?\d+(?:\.\d+)?)\s*m\b/g;
+    let m, arr = [];
+    while((m = re.exec(blk))) arr.push({t:m[1].padStart(5,"0"), h:parseFloat(m[2])});
+    if(arr.length) out[ym+"-"+String(cur).padStart(2,"0")] = arr.sort((a,b)=>a.t.localeCompare(b.t));
+  };
+  for(const raw of text.split(/\r?\n/)){
+    const line = raw.trim(); if(!line) continue;
+    const dm = line.match(/^(\d{1,2})(?![\d:.])/);
+    if(dm && +dm[1]>=1 && +dm[1]<=31){ flush(); cur = +dm[1]; buf = [line.slice(dm[0].length)]; }
+    else buf.push(line);
+  }
+  flush();
+  return out;
+}
+function autoTide(){
+  if(!$("autoTide").checked){ return; }
+  const ev = tideEvents(), now = Date.now(), box = $("tideNow");
+  const i = ev.findIndex(e=>e.ts>now);
+  let lvl = null, txt = "";
+  if(i>0){
+    const a = ev[i-1], b = ev[i];
+    lvl = a.h + (b.h-a.h)*(1-Math.cos(Math.PI*(now-a.ts)/(b.ts-a.ts)))/2;
+    const hm = ts=>{ const d = new Date(ts); return fmtMin(d.getHours()*60+d.getMinutes()); };
+    txt = "目前水位約 "+lvl.toFixed(1)+" m（"+(b.h>a.h?"漲潮":"退潮")+"中），下次"+(b.high?"高潮 ":"低潮 ")+hm(b.ts)+"・"+b.h+" m（曲線推算，非實測）";
+  }else{
+    txt = "潮汐表沒有涵蓋現在的時間，請貼上本月或下月的潮汐表。";
+  }
+  const peak = ev.find(e=>e.high && e.ts+90*60000>=now);
+  if(peak && peak.ts-now<=6*3600e3){
+    const d = new Date(peak.ts);
+    const tbl = fmtMin(d.getHours()*60+d.getMinutes());
+    $("tide").value = peak.h; $("tideTime").value = tbl; autoPeakTs = peak.ts;
+    const ot = $("offTime").value, oh = parseFloat($("offH").value);
+    let cmp = "";
+    if(ot){
+      const [hh,mm] = ot.split(":").map(Number), nd = new Date(peak.ts); nd.setHours(hh,mm,0,0);
+      const diff = Math.round((nd.getTime()-peak.ts)/60000);
+      cmp = "潮汐表高潮 "+tbl+"；官方 "+ot+"（"+(diff>=0?"晚 ":"早 ")+Math.abs(diff)+" 分鐘）。";
+      if($("useOff").checked){ autoPeakTs = nd.getTime(); $("tideTime").value = ot; cmp += "已改用官方時間。"; }
+    }
+    if(!isNaN(oh)) cmp += "官方高度 "+oh+" m（官方基準與潮汐表不同，兩者數字不可直接比較）。";
+    $("offCmp").textContent = cmp;
+  }else{
+    $("tide").value = lvl!=null ? lvl.toFixed(2) : ""; $("tideTime").value = ""; autoPeakTs = null; $("offCmp").textContent = "";
+  }
+  box.textContent = txt;
+}
+
+// ===== 淹水紀錄（校正用） =====
+const fmtMin = m => { m = ((m%1440)+1440)%1440; return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0"); };
+let lg = null;
+try{ lg = JSON.parse(localStorage.getItem("floodLog")||"null"); }catch(e){}
+if(!Array.isArray(lg)){
+  lg = [{id:"seed1", date:"2026-10-27", time:"16:00", tide:3.5, depth:26, place:"Nguyễn Lương Bằng × Đường 15B", est:true}];
+  saveLg();
+}
+function saveLg(){ try{ localStorage.setItem("floodLog", JSON.stringify(lg)); }catch(e){} }
+// 簡單線性回歸：積水深度 = a + b × 潮位；至少兩筆且潮位不同才能估
+function depthModel(){
+  const pts = lg.filter(x=>isFinite(x.tide) && isFinite(x.depth));
+  if(pts.length<2) return null;
+  const n = pts.length, mx = pts.reduce((s,x)=>s+x.tide,0)/n, my = pts.reduce((s,x)=>s+x.depth,0)/n;
+  const vx = pts.reduce((s,x)=>s+(x.tide-mx)**2,0);
+  if(vx<1e-6) return null;
+  const b = pts.reduce((s,x)=>s+(x.tide-mx)*(x.depth-my),0)/vx;
+  if(b<=0) return null;
+  const a = my - b*mx;
+  return {a, b, start:-a/b, n};
+}
+function renderLog(){
+  const el = $("lgList"); if(!el) return;
+  el.innerHTML = "";
+  lg.slice().sort((x,y)=>(y.date+y.time).localeCompare(x.date+x.time)).forEach(x=>{
+    const d = document.createElement("div");
+    d.className = "pt"; d.style.cursor = "default";
+    d.innerHTML = '<div class="n">'+esc(x.date)+' '+esc(x.time||"")+' · 潮位 '+x.tide+' m'+(x.est?'（估）':'')+' · 積水 <b>'+x.depth+'</b> cm<small>'+esc(x.place||"")+'</small></div>';
+    const b = document.createElement("button");
+    b.textContent = "刪除"; b.style.padding = "3px 6px"; b.style.fontSize = "11px";
+    b.onclick = ()=>{ lg = lg.filter(q=>q.id!==x.id); saveLg(); renderAll(); };
+    d.appendChild(b); el.appendChild(d);
+  });
+  const dm = depthModel(), box = $("lgEst");
+  if(!dm){ box.textContent = "再記一筆「不同潮位」的紀錄，就能估算開始積水的潮位與水深。"; return; }
+  const tv = parseFloat($("tide").value);
+  box.innerHTML = '依 '+dm.n+' 筆紀錄估計：潮位約 <b>'+dm.start.toFixed(2)+' m</b> 以上開始積水，每高 0.1 m 約多 <b>'+(dm.b*0.1).toFixed(0)+' cm</b>'
+    + (isNaN(tv) ? '' : '；潮位 '+tv+' m 時約 <b>'+Math.max(0,Math.round(dm.a+dm.b*tv))+' cm</b>')
+    + '。<br>（紀錄少時只是粗估，請持續累積。）';
+}
+$("btnLg").onclick = ()=>{
+  const date = $("lgDate").value, tide = parseFloat($("lgTide").value), depth = parseFloat($("lgDepth").value);
+  if(!date || isNaN(tide) || isNaN(depth)){ setStatus("請填日期、當時潮位和積水深度", true); return; }
+  lg.push({id:"l"+Date.now(), date, time:$("lgTime").value, tide, depth, place:$("lgPlace").value.trim()});
+  saveLg(); $("lgTide").value = ""; $("lgDepth").value = ""; renderAll();
+  setStatus("已新增紀錄");
+};
+{ const n = new Date(); $("lgDate").value = n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0")+"-"+String(n.getDate()).padStart(2,"0"); }
+
+// ===== 匯出／匯入設定（不含 API KEY） =====
+$("btnExp").onclick = ()=>{
+  const o = {v:1, custom:customPoints, posOv, nameOv, hidden, tideDB, th:$("tideTh").value};
+  if($("expHome").checked && home) o.home = home;
+  if($("expLog").checked) o.log = lg;
+  $("shareBox").value = JSON.stringify(o);
+  $("shareBox").select();
+  setStatus("已產生設定文字，請複製後傳給家人");
+};
+$("btnImp").onclick = ()=>{
+  let o;
+  try{ o = JSON.parse($("shareBox").value); }catch(e){ setStatus("格式不正確，請確認貼上的是完整的匯出文字", true); return; }
+  if(!o || o.v!==1){ setStatus("不是本頁匯出的設定", true); return; }
+  const okPt = p => p && typeof p.id==="string" && typeof p.name==="string" && isFinite(p.lat) && isFinite(p.lng) && [1,2,3].includes(p.v);
+  let added = 0;
+  if(Array.isArray(o.custom)) for(const p of o.custom) if(okPt(p) && !customPoints.some(q=>q.id===p.id)){
+    customPoints.push({id:p.id, name:p.name, lat:+p.lat, lng:+p.lng, v:p.v, note:typeof p.note==="string"?p.note:"", custom:true, tide:!!p.tide}); added++;
+  }
+  if(o.posOv && typeof o.posOv==="object") for(const k in o.posOv){ const v = o.posOv[k]; if(v && isFinite(v.lat) && isFinite(v.lng)) posOv[k] = {lat:+v.lat, lng:+v.lng}; }
+  if(o.nameOv && typeof o.nameOv==="object") for(const k in o.nameOv) if(typeof o.nameOv[k]==="string") nameOv[k] = o.nameOv[k];
+  if(Array.isArray(o.hidden)) hidden = o.hidden.filter(x=>typeof x==="string");
+  if(o.tideDB && typeof o.tideDB==="object") for(const k in o.tideDB) if(/^\d{4}-\d{2}-\d{2}$/.test(k) && Array.isArray(o.tideDB[k]))
+    tideDB[k] = o.tideDB[k].filter(x=>x && /^\d{2}:\d{2}$/.test(x.t) && isFinite(x.h)).map(x=>({t:x.t, h:+x.h}));
+  if(o.home && isFinite(o.home.lat) && isFinite(o.home.lng)){
+    home = {lat:+o.home.lat, lng:+o.home.lng, label:"", alias:typeof o.home.alias==="string"?o.home.alias:"", v:[1,2,3].includes(o.home.v)?o.home.v:2};
+    $("homeV").value = String(home.v);
+  }
+  if(Array.isArray(o.log)) for(const x of o.log) if(x && isFinite(x.tide) && isFinite(x.depth) && typeof x.date==="string" && !lg.some(q=>q.id===x.id))
+    lg.push({id:String(x.id), date:x.date, time:typeof x.time==="string"?x.time:"", tide:+x.tide, depth:+x.depth, place:typeof x.place==="string"?x.place:""});
+  if(o.th && isFinite(o.th)) $("tideTh").value = o.th;
+  try{
+    localStorage.setItem("floodPosOv", JSON.stringify(posOv)); localStorage.setItem("floodNameOv", JSON.stringify(nameOv));
+    localStorage.setItem("floodHidden", JSON.stringify(hidden)); if(home) localStorage.setItem("floodHome", JSON.stringify(home));
+  }catch(e){}
+  saveCustom(); saveTideDB(); saveLg(); saveTide();
+  $("shareBox").value = "";
+  autoTide(); renderAll();
+  setStatus("已匯入設定（新增 "+added+" 個自訂點位）");
+};
+
+// ===== 校正點位位置 =====
+let pickTarget = null;
+function savePos(id, lat, lng){
+  if(id==="home"){ home.lat = lat; home.lng = lng; try{ localStorage.setItem("floodHome", JSON.stringify(home)); }catch(x){} }
+  else{
+    const c = customPoints.find(q=>q.id===id);
+    if(c){ c.lat = lat; c.lng = lng; saveCustom(); }
+    else{ posOv[id] = {lat, lng}; try{ localStorage.setItem("floodPosOv", JSON.stringify(posOv)); }catch(x){} }
+  }
+  renderAll();
+}
+
+// ===== 我家 =====
+function setHome(lat, lng, label){
+  home = {lat, lng, label: label||"", alias: home && home.alias || "", v: parseInt($("homeV").value,10)||2};
+  try{ localStorage.setItem("floodHome", JSON.stringify(home)); }catch(e){}
+  if(map){ map.panTo({lat,lng}); map.setZoom(16); }
+  renderAll();
+}
+function renderHome(){
+  const el = $("homeCard");
+  const e = evaluated.find(x=>x.p.home);
+  if(!e){ el.style.background = "var(--bg)"; el.style.color = "var(--text)"; el.textContent = "尚未設定。搜尋地址，或按「在地圖上點選」再點你家位置。"; return; }
+  if(e.level==null){ el.style.background = "#94a3b8"; el.style.color = "#fff"; el.textContent = "已設定位置，等待天氣資料…"; return; }
+  el.style.background = LEVELS[e.level].color; el.style.color = "#fff";
+  const msg = ["目前預報未達淹水風險","留意降雨，低窪處可能積水","可能淹水，建議提早準備","高淹水風險，注意安全"][e.level];
+  el.innerHTML = '<b style="font-size:16px">'+LEVELS[e.level].name+'</b>　'+msg+'<br>未來1h '+e.r.h1.toFixed(1)+' mm · 3h '+e.r.h3.toFixed(1)+' mm · 24h '+e.r.h24.toFixed(1)+' mm'
+    + (e.tideHigh && e.p.v>=2 ? '<br>潮位偏高，已加一級' : '');
+}
+async function searchHome(){
+  const q = $("homeQ").value.trim();
+  if(!q) return;
+  if(!(window.google && google.maps)){ setStatus("請先載入地圖再搜尋", true); return; }
+  try{
+    const res = await new google.maps.Geocoder().geocode({address:q+", Ho Chi Minh City, Vietnam", region:"VN"});
+    if(!res.results.length){ setStatus("找不到該地址，請改用「在地圖上點選」", true); return; }
+    const r = res.results[0], loc = r.geometry.location;
+    setHome(loc.lat(), loc.lng(), q);
+    setStatus("已設定：" + r.formatted_address + "\n若位置不準，請按「在地圖上點選」自行修正");
+  }catch(err){
+    setStatus("地址搜尋失敗（可能需在 Google Cloud 啟用 Geocoding API）。請改用「在地圖上點選」。\n"+(err.message||err), true);
+  }
+}
+$("btnHomeSearch").onclick = searchHome;
+$("homeQ").addEventListener("keydown", e=>{ if(e.key==="Enter") searchHome(); });
+$("btnHomePick").onclick = ()=>{ if(!map){ setStatus("請先載入地圖", true); return; } homePick = true; setStatus("請在地圖上點選你家的位置（可先放大）"); };
+$("btnHomeClear").onclick = ()=>{ home=null; try{ localStorage.removeItem("floodHome"); }catch(e){} renderAll(); };
+$("homeV").onchange = ()=>{ if(home){ home.v = parseInt($("homeV").value,10); try{ localStorage.setItem("floodHome", JSON.stringify(home)); }catch(e){} renderAll(); } };
+
+// ===== 自訂點位 =====
+function addCustomPoint(lat,lng){
+  const name = prompt("點位名稱？"); if(!name) return;
+  const v = parseInt(prompt("地勢係數：1=低風險 2=中 3=高（易淹）","2"),10);
+  const tide = confirm("此點是否受潮汐影響（大潮時會淹）？");
+  customPoints.push({id:"c"+Date.now(), name, lat, lng, v:[1,2,3].includes(v)?v:2, note:"", custom:true, tide});
+  saveCustom(); renderAll();
+}
+$("btnEdit").onclick = ()=>{
+  editMode = !editMode;
+  $("btnEdit").textContent = editMode ? "完成" : "細部修正";
+  renderPoints();
+};
+$("btnRestore").onclick = ()=>{ hidden = []; try{ localStorage.removeItem("floodHidden"); }catch(e){} renderAll(); };
+$("btnAdd").onclick = ()=>{
+  if(!map){ setStatus("請先載入地圖", true); return; }
+  const name = prompt("新偵測點名稱？"); if(!name || !name.trim()) return;
+  const c = map.getCenter();
+  customPoints.push({id:"c"+Date.now(), name:name.trim(), lat:c.lat(), lng:c.lng(), v:3, note:"自訂監測點", custom:true,
+    tide:confirm("此點是否受潮汐影響（大潮時會淹）？")});
+  saveCustom(); renderAll();
+  setStatus("已放在地圖中央，請把圓點拖曳到道路上（建議先放大地圖）");
+};
+$("btnNewPt").onclick = ()=>{
+  if(!map){ setStatus("請先載入地圖", true); return; }
+  const c = map.getCenter();
+  customPoints.push({id:"c"+Date.now(), name:$("newName").value.trim()||"自訂監測點", lat:c.lat(), lng:c.lng(),
+    v:parseInt($("newV").value,10)||3, note:"自訂監測點", custom:true, tide:$("newTide").checked});
+  saveCustom(); renderAll();
+  $("newName").value = "";
+  setStatus("已放在地圖中央，請把圓點拖曳到道路上（建議先放大地圖）");
+};
+function removeCustom(id){
+  customPoints = customPoints.filter(p=>p.id!==id);
+  saveCustom(); infoWin.close(); renderAll();
+}
+function saveCustom(){ try{ localStorage.setItem("floodCustomPts", JSON.stringify(customPoints)); }catch(e){} }
+
+// ===== 事件 =====
+$("btnLoad").onclick = loadMaps;
+$("apiKey").addEventListener("keydown", e=>{ if(e.key==="Enter") loadMaps(); });
+$("btnForget").onclick = ()=>{ try{ localStorage.removeItem("floodApiKey"); }catch(e){} $("apiKey").value=""; setStatus("已清除"); };
+$("traffic").onchange = e=>{ if(trafficLayer) trafficLayer.setMap(e.target.checked?map:null); };
+// 潮位與高潮時間記在瀏覽器，只在同一天有效（隔天需重填新的潮汐）
+const todayStr = () => { const n = new Date(); return n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0")+"-"+String(n.getDate()).padStart(2,"0"); };
+try{
+  const t = JSON.parse(localStorage.getItem("floodTide")||"null");
+  if(t && t.date===todayStr()){ $("tide").value = t.tide; $("tideTime").value = t.time; if(t.th) $("tideTh").value = t.th; }
+}catch(e){}
+function saveTide(){ try{ localStorage.setItem("floodTide", JSON.stringify({date:todayStr(), tide:$("tide").value, time:$("tideTime").value, th:$("tideTh").value})); }catch(e){} }
+["tide","tideTime","tideTh","simMm"].forEach(id=>$(id).addEventListener("input", ()=>{
+  if(id==="tide" || id==="tideTime"){ $("autoTide").checked = false; autoPeakTs = null; $("tideNow").textContent = ""; }
+  saveTide(); renderAll();
+}));
+$("autoTide").onchange = ()=>{ if($("autoTide").checked) autoTide(); else $("tideNow").textContent = ""; renderAll(); };
+{ const n = new Date(); $("tideMonth").value = n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0"); }
+$("btnTideParse").onclick = ()=>{
+  const ym = $("tideMonth").value;
+  if(!ym){ setStatus("請選擇潮汐表的月份", true); return; }
+  const got = parseTideText($("tideTbl").value, ym), days = Object.keys(got);
+  if(!days.length){ setStatus("沒有解析到潮汐資料。請複製整張表格（含時間與「m」高度）再貼上。", true); return; }
+  for(const k of days) tideDB[k] = got[k];
+  saveTideDB(); $("tideTbl").value = "";
+  $("autoTide").checked = true; autoTide(); renderAll();
+  setStatus("已加入 "+days.length+" 天的潮汐表");
+};
+try{
+  const o = JSON.parse(localStorage.getItem("floodOff")||"null");
+  if(o && o.date===todayStr()){ $("offTime").value = o.time||""; $("offH").value = o.h||""; $("useOff").checked = !!o.use; }
+}catch(e){}
+["offTime","offH","useOff"].forEach(id=>$(id).addEventListener("input", ()=>{
+  try{ localStorage.setItem("floodOff", JSON.stringify({date:todayStr(), time:$("offTime").value, h:$("offH").value, use:$("useOff").checked})); }catch(e){}
+  autoTide(); renderAll();
+}));
+autoTide();
+setInterval(()=>{ if($("autoTide").checked){ autoTide(); renderAll(); } }, 60000);
+$("sim").onchange = ()=>{ if($("sim").checked && map===undefined){ renderAll(); } fetchAllIfReady(); };
+function fetchAllIfReady(){ if(map) fetchAll(); else renderAll(); }
+
+renderAll();
+</script>
+</body>
+</html>
